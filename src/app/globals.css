@@ -1,26 +1,77 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* ─── 60 / 30 / 10 Corporate Blue Design ─── */
+  --c-bg:           #f8fafc;   /* 60% - page background  */
+  --c-surface:      #ffffff;   /* 30% - cards / panels   */
+  --c-border:       #e2e8f0;
+  --c-border-2:     #cbd5e1;
+  --c-text-1:       #0f172a;   /* primary text           */
+  --c-text-2:       #64748b;   /* secondary text         */
+  --c-text-3:       #94a3b8;   /* placeholder / muted    */
+  --c-accent:       #2563eb;   /* 10% - corporate blue   */
+  --c-accent-h:     #1d4ed8;   /* hover blue             */
+  --c-accent-bg:    #eff6ff;   /* soft blue background   */
+  --c-accent-light: #bfdbfe;   /* light blue badge/text  */
+  --c-success:      #059669;
+  --c-error:        #dc2626;
+  --c-warn:         #d97706;
+
+  --r-sm:  4px;
+  --r-md:  8px;
+  --r-lg:  12px;
+  --r-xl:  16px;
+  --r-full: 9999px;
+
+  --sh-sm: 0 1px 3px rgba(0,0,0,.08);
+  --sh-md: 0 4px 12px rgba(0,0,0,.1);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ─── Dark Mode Palette (Charcoal Matte #28292b) ─── */
+[data-theme="dark"] {
+  --c-bg:           #28292b;   /* kulrangsimon qora #28292b */
+  --c-surface:      #1f2022;   /* clean dark surface        */
+  --c-border:       #38393c;
+  --c-border-2:     #4a4b4e;
+  --c-text-1:       #f1f3f4;   /* bright text               */
+  --c-text-2:       #9aa0a6;   /* muted text                */
+  --c-text-3:       #70757a;   /* subtle text               */
+  --c-accent:       #3b82f6;   /* corporate blue            */
+  --c-accent-h:     #60a5fa;   /* light blue on hover       */
+  --c-accent-bg:    #232f48;   /* dark blue accent fill     */
+  --c-accent-light: #93c5fd;
+  --c-success:      #10b981;
+  --c-error:        #ef4444;
+  --c-warn:         #f59e0b;
+
+  --sh-sm: 0 1px 3px rgba(0,0,0,.3);
+  --sh-md: 0 4px 12px rgba(0,0,0,.4);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--c-bg);
+  color: var(--c-text-1);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+button { cursor: pointer; font-family: inherit; background: none; border: none; color: inherit; }
+input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; background: none; border: none; outline: none; }
+a { color: inherit; text-decoration: none; }
+
+/* Custom select options styling */
+select option {
+  background-color: var(--c-surface);
+  color: var(--c-text-1);
 }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--c-border-2); border-radius: var(--r-full); }
+::-webkit-scrollbar-thumb:hover { background: var(--c-text-3); }
