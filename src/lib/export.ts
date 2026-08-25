@@ -150,7 +150,9 @@ export async function generateMasterAudio(
         percent: 42,
         message: 'Asl video audio treki olinmoqda…',
       });
-      const audioRes = await fetch(`/api/audio?videoId=${encodeURIComponent(videoId)}`);
+      const audioRes = await fetch(`/api/audio?videoId=${encodeURIComponent(videoId)}`, {
+        signal: AbortSignal.timeout(8000),
+      });
       if (audioRes.ok) {
         const origAb = await audioRes.arrayBuffer();
         origAudioBuffer = await audioCtx.decodeAudioData(origAb);

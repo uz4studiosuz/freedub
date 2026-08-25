@@ -66,18 +66,54 @@ async function fetchTrackList(videoId: string): Promise<TrackList> {
   if (!res.ok) throw new Error(`YouTube sahifasi ochilmadi (${res.status})`);
   const html = await res.text();
 
+  let raw: RawTrack[] = [];
   const match = html.match(/"captionTracks":(\[.*?\])/);
-  if (!match) {
+  if (match) {
+    try {
+      raw = JSON.parse(match[1]);
+    } catch {
+      raw = [];
+    }
+  }
+
+  // Agar oddiy HTML da topilmasa, YouTube Android Innertube API orqali yashirin taglavhalarni qidiramiz
+  if (!raw.length) {
+    try {
+      const innertubeRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
+        },
+        body: JSON.stringify({
+          context: {
+            client: {
+              clientName: 'ANDROID',
+              clientVersion: '19.09.37',
+              hl: 'en',
+            },
+          },
+          videoId,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+
+      if (innertubeRes.ok) {
+        const data = await innertubeRes.json();
+        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+        if (Array.isArray(tracks) && tracks.length > 0) {
+          raw = tracks;
+        }
+      }
+    } catch {
+      /* Innertube fallback xatosi */
+    }
+  }
+
+  if (!raw.length) {
     if (/"playabilityStatus":\{"status":"(LOGIN_REQUIRED|UNPLAYABLE|ERROR)"/.test(html)) {
       throw new Error('Video ochiq emas yoki yoshga cheklangan');
     }
-    return { tracks: [] };
-  }
-
-  let raw: RawTrack[];
-  try {
-    raw = JSON.parse(match[1]);
-  } catch {
     return { tracks: [] };
   }
 

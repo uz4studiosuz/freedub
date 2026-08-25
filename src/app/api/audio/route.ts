@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import ytdl from '@distube/ytdl-core';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 export async function GET(request: Request) {
   try {
@@ -13,19 +13,30 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'videoId ko\'rsatilmadi' }, { status: 400 });
     }
 
-    // YouTube dan audio formatlarini olish
-    const info = await ytdl.getInfo(videoId);
+    // YouTube dan audio formatlarini olish (15s timeout bilan)
+    const info = await Promise.race([
+      ytdl.getInfo(videoId, {
+        requestOptions: {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          },
+        },
+      }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('YouTube audio timeout')), 15_000)),
+    ]);
+
     const formats = ytdl.filterFormats(info.formats, 'audioonly');
 
     if (!formats.length) {
       return NextResponse.json({ error: 'Audio oqim topilmadi' }, { status: 404 });
     }
 
-    // Eng qulay audio formatni tanlash (m4a yoki webm)
-    const bestAudio = ytdl.chooseFormat(formats, {
-      quality: 'highestaudio',
-      filter: 'audioonly',
-    }) || formats[0];
+    const bestAudio =
+      ytdl.chooseFormat(formats, {
+        quality: 'lowestaudio',
+        filter: 'audioonly',
+      }) || formats[0];
 
     const streamUrl = bestAudio.url;
     if (!streamUrl) {
@@ -37,6 +48,7 @@ export async function GET(request: Request) {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
       },
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!audioRes.ok) {

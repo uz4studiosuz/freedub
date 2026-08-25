@@ -5,6 +5,7 @@ import { listTracks, pickTrack, fetchTrack } from '@/lib/captions';
 import { translateCues } from '@/lib/translate';
 import { getProfile } from '@/lib/voices';
 import { DEFAULT_PROVIDER } from '@/lib/providers';
+import { transcribeAudioStream } from '@/lib/transcribe';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -84,10 +85,30 @@ export async function POST(request: Request) {
     try {
       loaded = await loadCaptions(videoId, String(sourceLang));
     } catch (e) {
-      return NextResponse.json({
-        error: 'Bu video uchun taglavhalar topilmadi. Taglavhasi bor boshqa video sinab ko\'ring.',
-        details: String((e as Error)?.message ?? e),
-      }, { status: 404 });
+      // Agar YouTube taglavhalari topilmasa, AI ASR (Speech-to-Text) orqali ovozdan transkripsiya qilamiz
+      try {
+        const asrResult = await transcribeAudioStream(
+          videoId,
+          typeof apiKey === 'string' ? apiKey : undefined,
+          typeof provider === 'string' ? provider : undefined
+        );
+        loaded = {
+          segments: asrResult.segments,
+          trackId: 'asr:ai',
+          languageCode: asrResult.languageCode,
+          label: asrResult.label,
+        };
+      } catch (asrErr) {
+        return NextResponse.json(
+          {
+            error:
+              (asrErr as Error)?.message ||
+              "Bu video uchun taglavhalar topilmadi. Taglavhasiz videolarni ovozidan eshitib tarjima qilish uchun Sozlamalarda Gemini yoki Groq API kalitingizni kiriting.",
+            details: String((e as Error)?.message ?? e),
+          },
+          { status: 404 }
+        );
+      }
     }
 
     const cues = buildCues(loaded.segments);
