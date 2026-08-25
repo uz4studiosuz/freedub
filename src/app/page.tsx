@@ -36,7 +36,7 @@ import { DubEngine } from '@/lib/dub-engine';
 import { LANGS, DEFAULT_LANG, getProfile } from '@/lib/voices';
 import { DEFAULT_PROVIDER, type ProviderStatus } from '@/lib/providers';
 import { build as buildSubs, toBilingualTxt, MIME, type SubFormat } from '@/lib/subtitles';
-import { generateMasterAudio, exportVideoWithWatermark, triggerDownload } from '@/lib/export';
+import { generateMasterAudio, exportVideoWithWatermark, triggerDownload, getExportFilename } from '@/lib/export';
 import Landing from '@/components/Landing';
 import VideoPlayer, { type PlayerHandle } from '@/components/VideoPlayer';
 
@@ -360,9 +360,8 @@ export default function Home() {
   const exportSubs = (format: SubFormat) => {
     if (!cues.length) return;
     const which = showOriginal ? 'original' : 'translated';
-    const suffix = showOriginal ? 'original' : getProfile(targetLang).code;
     download(
-      `autodub-${videoId}-${suffix}.${format}`,
+      getExportFilename(videoId || undefined, format),
       buildSubs(cues, format, which),
       MIME[format]
     );
@@ -370,7 +369,7 @@ export default function Home() {
 
   const exportBilingual = () => {
     if (!cues.length) return;
-    download(`autodub-${videoId}-2tilli.txt`, toBilingualTxt(cues), MIME.txt);
+    download(getExportFilename(videoId || undefined, 'txt'), toBilingualTxt(cues), MIME.txt);
   };
 
   const exportMp3 = async () => {
@@ -378,11 +377,19 @@ export default function Home() {
     try {
       setIsExporting(true);
       setExportMsg('MP3 audio trek tayyorlanmoqda…');
-      const { blob } = await generateMasterAudio(cues, targetLang, activeVoice, p => {
-        setExportMsg(p.message);
-        setExportPct(p.percent);
+      const { mp3Blob } = await generateMasterAudio({
+        cues,
+        targetLang,
+        voiceId: activeVoice,
+        videoId: videoId || undefined,
+        origVol,
+        dubVol,
+        onProgress: p => {
+          setExportMsg(p.message);
+          setExportPct(p.percent);
+        },
       });
-      triggerDownload(blob, `autodub-${videoId}-${getProfile(targetLang).code}-dublyaj.wav`);
+      triggerDownload(mp3Blob, getExportFilename(videoId || undefined, 'mp3'));
     } catch (err: any) {
       alert('Audio eksport xatosi: ' + (err?.message || err));
     } finally {
@@ -397,18 +404,20 @@ export default function Home() {
     try {
       setIsExporting(true);
       setExportMsg('MP4 video suv belgisi bilan render qilinmoqda…');
-      const blob = await exportVideoWithWatermark(
+      const mp4Blob = await exportVideoWithWatermark({
         cues,
         targetLang,
-        activeVoice,
-        `AutoDub · ${targetLang}`,
-        p => {
+        voiceId: activeVoice,
+        videoId: videoId || undefined,
+        origVol,
+        dubVol,
+        videoTitle: `AutoDub · ${targetLang}`,
+        onProgress: p => {
           setExportMsg(p.message);
           setExportPct(p.percent);
-        }
-      );
-      const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
-      triggerDownload(blob, `autodub-${videoId}-${getProfile(targetLang).code}-watermarked.${ext}`);
+        },
+      });
+      triggerDownload(mp4Blob, getExportFilename(videoId || undefined, 'mp4'));
     } catch (err: any) {
       alert('Video eksport xatosi: ' + (err?.message || err));
     } finally {
