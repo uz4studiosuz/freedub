@@ -66,7 +66,7 @@ async function fetchTrackList(videoId: string): Promise<TrackList> {
   let raw: RawTrack[] = [];
   let audioLang: string | undefined;
 
-  // 1. Birinchi navbatda tezkor va ishonchli Android Innertube orqali tekshiramiz
+  // 1. Android Innertube orqali taglavhalarni olish
   try {
     const innertubeRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
       method: 'POST',
@@ -89,22 +89,13 @@ async function fetchTrackList(videoId: string): Promise<TrackList> {
 
     if (innertubeRes.ok) {
       const data = await innertubeRes.json();
-      const status = data?.playabilityStatus?.status;
-      if (status === 'ERROR' || status === 'LOGIN_REQUIRED' || status === 'UNPLAYABLE') {
-        const reason = data?.playabilityStatus?.reason || 'Video mavjud emas yoki yoshga cheklangan';
-        throw new Error(reason);
-      }
       const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
       if (Array.isArray(tracks) && tracks.length > 0) {
         raw = tracks;
       }
       audioLang = data?.videoDetails?.defaultAudioLanguage;
     }
-  } catch (e: any) {
-    if (e?.message && !e.message.includes('fetch failed')) {
-      throw e;
-    }
-  }
+  } catch {}
 
   // 2. Agar Innertube da topilmasa, YouTube watch sahifasini tahlil qilamiz
   if (!raw.length) {
@@ -126,15 +117,8 @@ async function fetchTrackList(videoId: string): Promise<TrackList> {
         if (!audioLang) {
           audioLang = html.match(/"defaultAudioLanguage":"([\w-]+)"/)?.[1];
         }
-        if (!raw.length && /"playabilityStatus":\{"status":"(LOGIN_REQUIRED|UNPLAYABLE|ERROR)"/.test(html)) {
-          throw new Error('Video ochiq emas yoki yoshga cheklangan');
-        }
       }
-    } catch (e: any) {
-      if (e?.message && e.message.includes('Video ochiq emas')) {
-        throw e;
-      }
-    }
+    } catch {}
   }
 
   if (!raw.length) {
@@ -156,20 +140,16 @@ async function fetchTrackList(videoId: string): Promise<TrackList> {
 
 /**
  * `auto` uchun trek tanlash: gapirilayotgan tilni topish maqsadi.
- * ASR treki har doim asl til bo'ladi, lekin qo'lda kiritilgan matn sifatliroq —
- * shuning uchun ASR tili bo'yicha qo'lda trek bo'lsa, o'shani olamiz.
  */
 export function pickTrack(list: TrackList, requested: string): CaptionTrack | null {
   const { tracks, defaultAudioLanguage } = list;
   if (!tracks.length) return null;
 
   if (requested && requested !== 'auto') {
-    // Aniq id (`en:asr`) bo'lsa aynan o'shani, aks holda til kodi bo'yicha
     const exact = tracks.find(t => t.id === requested);
     if (exact) return exact;
     const byLang = tracks.filter(t => t.languageCode === requested || t.languageCode.split('-')[0] === requested);
     if (byLang.length) return byLang.find(t => t.kind === 'manual') ?? byLang[0];
-    // So'ralgan til yo'q — avtomatik tanlashga tushamiz
   }
 
   const asr = tracks.find(t => t.kind === 'asr');
@@ -184,17 +164,35 @@ export function pickTrack(list: TrackList, requested: string): CaptionTrack | nu
 
 /** Tanlangan trekni o'qib, xom segmentlarga aylantiradi (XML va JSON formatlarini to'liq qo'llab-quvvatlaydi). */
 export async function fetchTrack(track: CaptionTrack): Promise<RawSegment[]> {
-  const res = await fetch(track.baseUrl, {
-    headers: { 'User-Agent': DESKTOP_UA },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) throw new Error(`Taglavha yuklanmadi (${res.status})`);
+  // 1. Dastlabki baseUrl orqali o'qish
+  try {
+    const res = await fetch(track.baseUrl, {
+      headers: { 'User-Agent': DESKTOP_UA },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (res.ok) {
+      const rawText = await res.text();
+      const segments = parseCaptionsText(rawText);
+      if (segments.length > 0) return segments;
+    }
+  } catch {}
 
-  const rawText = await res.text();
-  const segments = parseCaptionsText(rawText);
+  // 2. fmt=srv3 (XML timedtext formati)
+  try {
+    const srv3Url = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=srv3`;
+    const resSrv3 = await fetch(srv3Url, {
+      headers: { 'User-Agent': DESKTOP_UA },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (resSrv3.ok) {
+      const textSrv3 = await resSrv3.text();
+      const segments = parseCaptionsText(textSrv3);
+      if (segments.length > 0) return segments;
+    }
+  } catch {}
 
-  if (!segments.length) {
-    // Agar dastlabki format bo'sh bo'lsa, `fmt=json3` bilan qayta urinib ko'ramiz
+  // 3. fmt=json3 (JSON3 formati)
+  try {
     const json3Url = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=json3`;
     const resJson = await fetch(json3Url, {
       headers: { 'User-Agent': DESKTOP_UA },
@@ -202,9 +200,10 @@ export async function fetchTrack(track: CaptionTrack): Promise<RawSegment[]> {
     });
     if (resJson.ok) {
       const textJson = await resJson.text();
-      return parseCaptionsText(textJson);
+      const segments = parseCaptionsText(textJson);
+      if (segments.length > 0) return segments;
     }
-  }
+  } catch {}
 
-  return segments;
+  return [];
 }

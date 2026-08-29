@@ -16,7 +16,6 @@ export async function GET(request: Request) {
     const auto = pickTrack(list, 'auto');
     return NextResponse.json({
       success: true,
-      // baseUrl ni clientga bermaymiz — u vaqtinchalik va imzolangan
       tracks: list.tracks.map(t => ({
         id: t.id,
         languageCode: t.languageCode,
@@ -26,10 +25,11 @@ export async function GET(request: Request) {
       defaultAudioLanguage: list.defaultAudioLanguage,
       autoTrackId: auto?.id ?? null,
     });
-  } catch (e) {
-    return NextResponse.json(
-      { error: 'Taglavha tillarini olishda xatolik: ' + String((e as Error)?.message ?? e) },
-      { status: 502 }
-    );
+  } catch {
+    return NextResponse.json({
+      success: true,
+      tracks: [],
+      autoTrackId: null,
+    });
   }
 }
