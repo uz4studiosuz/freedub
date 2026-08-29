@@ -4,8 +4,9 @@ import { buildCues, type RawSegment } from '@/lib/transcript';
 import { listTracks, pickTrack, fetchTrack } from '@/lib/captions';
 import { translateCues } from '@/lib/translate';
 import { getProfile } from '@/lib/voices';
-import { DEFAULT_PROVIDER } from '@/lib/providers';
+import { DEFAULT_PROVIDER, getProviderMeta } from '@/lib/providers';
 import { transcribeAudioStream } from '@/lib/transcribe';
+import { sanitizeYouTubeError } from '@/lib/youtube';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -37,13 +38,16 @@ async function loadCaptions(videoId: string, sourceLang: string): Promise<Loaded
         };
       }
     }
-  } catch {
-    /* zaxira yo'lga o'tamiz */
+  } catch (e: any) {
+    if (e?.message && (e.message.includes('yoshga cheklangan') || e.message.includes('mavjud emas'))) {
+      throw e;
+    }
   }
 
-  const attempts = sourceLang && sourceLang !== 'auto'
-    ? [{ lang: sourceLang.split(':')[0] }, undefined]
-    : [undefined, { lang: 'en' }];
+  const attempts =
+    sourceLang && sourceLang !== 'auto'
+      ? [{ lang: sourceLang.split(':')[0] }, undefined]
+      : [undefined, { lang: 'en' }];
 
   let lastError: unknown;
   for (const opts of attempts) {
@@ -61,7 +65,8 @@ async function loadCaptions(videoId: string, sourceLang: string): Promise<Loaded
       lastError = e;
     }
   }
-  throw lastError ?? new Error('Taglavhalar topilmadi');
+
+  throw lastError ?? new Error('Ushbu videoda YouTube taglavhalari (subtitrlar) topilmadi.');
 }
 
 export async function POST(request: Request) {
@@ -80,16 +85,39 @@ export async function POST(request: Request) {
     }
 
     const profile = getProfile(targetLang);
+    const providerMeta = getProviderMeta(provider);
+    const userApiKey = typeof apiKey === 'string' && apiKey.trim() ? apiKey.trim() : undefined;
+
+    // AI kalit mavjudligini tekshirish
+    const hasAiKey = Boolean(
+      userApiKey ||
+      (provider === 'gemini' && process.env.GEMINI_API_KEY) ||
+      (provider === 'groq' && process.env.GROQ_API_KEY)
+    );
 
     let loaded: Loaded;
     try {
       loaded = await loadCaptions(videoId, String(sourceLang));
-    } catch (e) {
-      // Agar YouTube taglavhalari topilmasa, AI ASR (Speech-to-Text) orqali ovozdan transkripsiya qilamiz
+    } catch (e: any) {
+      // Agar foydalanuvchi bepul provayderda bo'lsa va AI kalit kiritmagan bo'lsa:
+      // Hech qanday audio yuklash/bot xatosi chiqarmaymiz, tushunarli o'zbekcha yo'riqnoma beramiz!
+      if (!hasAiKey && providerMeta.kind === 'free') {
+        return NextResponse.json(
+          {
+            error:
+              `Ushbu videoda YouTube taglavhalari (subtitrlari) topilmadi. ` +
+              `Bepul tarjima xizmati (${providerMeta.label}) faqat videoda mavjud subtitrlar asosida ishlaydi. ` +
+              `Subtitrsiz videolarni ovozidan eshitib tarjima qilish uchun Sozlamalardan Gemini yoki Groq AI kalitini kiritishingiz mumkin.`,
+          },
+          { status: 404 }
+        );
+      }
+
+      // Agar AI kalit bo'lsa yoki AI provayder tanlangan bo'lsa, ASR (Speech-to-Text) orqali transkripsiya qilamiz
       try {
         const asrResult = await transcribeAudioStream(
           videoId,
-          typeof apiKey === 'string' ? apiKey : undefined,
+          userApiKey,
           typeof provider === 'string' ? provider : undefined
         );
         loaded = {
@@ -98,13 +126,11 @@ export async function POST(request: Request) {
           languageCode: asrResult.languageCode,
           label: asrResult.label,
         };
-      } catch (asrErr) {
+      } catch (asrErr: any) {
+        const cleanErr = sanitizeYouTubeError(asrErr?.message || String(asrErr));
         return NextResponse.json(
           {
-            error:
-              (asrErr as Error)?.message ||
-              "Bu video uchun taglavhalar topilmadi. Taglavhasiz videolarni ovozidan eshitib tarjima qilish uchun Sozlamalarda Gemini yoki Groq API kalitingizni kiriting.",
-            details: String((e as Error)?.message ?? e),
+            error: cleanErr,
           },
           { status: 404 }
         );
@@ -113,7 +139,7 @@ export async function POST(request: Request) {
 
     const cues = buildCues(loaded.segments);
     if (!cues.length) {
-      return NextResponse.json({ error: 'Taglavhalarda o\'qiladigan matn yo\'q' }, { status: 404 });
+      return NextResponse.json({ error: "Taglavhalarda o'qiladigan matn yo'q" }, { status: 404 });
     }
 
     // Manba va maqsad tili bir xil bo'lsa tarjima keraksiz — matnni shundayligicha o'qiymiz
@@ -127,14 +153,17 @@ export async function POST(request: Request) {
           targetCode: profile.code,
           targetName: profile.name,
           sourceCode: loaded.languageCode === 'unknown' ? 'auto' : loaded.languageCode,
-          apiKey: typeof apiKey === 'string' ? apiKey : undefined,
+          apiKey: userApiKey,
         });
         detected = result.detected;
       } catch (e) {
-        return NextResponse.json({
-          error: 'Tarjima xatosi: ' + String((e as Error)?.message ?? e),
-          provider,
-        }, { status: 502 });
+        return NextResponse.json(
+          {
+            error: 'Tarjima xatosi: ' + String((e as Error)?.message ?? e),
+            provider,
+          },
+          { status: 502 }
+        );
       }
     }
 
@@ -151,8 +180,9 @@ export async function POST(request: Request) {
       },
     });
   } catch (error) {
+    const rawMsg = String((error as Error)?.message ?? error);
     return NextResponse.json(
-      { error: 'Server xatosi: ' + String((error as Error)?.message ?? error) },
+      { error: sanitizeYouTubeError(rawMsg) },
       { status: 500 }
     );
   }

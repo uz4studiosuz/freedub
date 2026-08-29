@@ -2,15 +2,19 @@
  * YouTube taglavha treklarini ro'yxatlash va o'qish.
  *
  * `youtube-transcript` paketi faqat bitta trekni oladi va qaysi tillar
- * mavjudligini aytmaydi. Bu yerda watch sahifasidan `captionTracks` ro'yxati
- * olinadi — shu bilan foydalanuvchi manba tilini o'zi tanlashi mumkin bo'ladi.
+ * mavjudligini aytmaydi. Bu yerda watch sahifasidan va Android Innertube dan
+ * `captionTracks` ro'yxati olinadi — shu bilan foydalanuvchi manba tilini o'zi tanlashi mumkin bo'ladi.
+ *
+ * Ishlab chiquvchi: InnoHub & Usmoxan Design
  */
 
 import type { RawSegment } from './transcript';
-
-const UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ' +
-  'Chrome/140.0.0.0 Safari/537.36';
+import {
+  INNERTUBE_CLIENT_VERSION,
+  INNERTUBE_USER_AGENT,
+  DESKTOP_UA,
+  parseCaptionsText,
+} from './youtube';
 
 export interface CaptionTrack {
   /** Trek identifikatori: `<languageCode>:<kind>` */
@@ -36,7 +40,7 @@ interface RawTrack {
 }
 
 function trackLabel(t: RawTrack): string {
-  return t.name?.simpleText ?? t.name?.runs?.[0]?.text ?? t.languageCode ?? 'Noma\'lum';
+  return t.name?.simpleText ?? t.name?.runs?.[0]?.text ?? t.languageCode ?? "Noma'lum";
 }
 
 /**
@@ -59,65 +63,83 @@ export async function listTracks(videoId: string): Promise<TrackList> {
 }
 
 async function fetchTrackList(videoId: string): Promise<TrackList> {
-  const res = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en`, {
-    headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) throw new Error(`YouTube sahifasi ochilmadi (${res.status})`);
-  const html = await res.text();
-
   let raw: RawTrack[] = [];
-  const match = html.match(/"captionTracks":(\[.*?\])/);
-  if (match) {
-    try {
-      raw = JSON.parse(match[1]);
-    } catch {
-      raw = [];
+  let audioLang: string | undefined;
+
+  // 1. Birinchi navbatda tezkor va ishonchli Android Innertube orqali tekshiramiz
+  try {
+    const innertubeRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': INNERTUBE_USER_AGENT,
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'ANDROID',
+            clientVersion: INNERTUBE_CLIENT_VERSION,
+            hl: 'en',
+          },
+        },
+        videoId,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (innertubeRes.ok) {
+      const data = await innertubeRes.json();
+      const status = data?.playabilityStatus?.status;
+      if (status === 'ERROR' || status === 'LOGIN_REQUIRED' || status === 'UNPLAYABLE') {
+        const reason = data?.playabilityStatus?.reason || 'Video mavjud emas yoki yoshga cheklangan';
+        throw new Error(reason);
+      }
+      const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      if (Array.isArray(tracks) && tracks.length > 0) {
+        raw = tracks;
+      }
+      audioLang = data?.videoDetails?.defaultAudioLanguage;
+    }
+  } catch (e: any) {
+    if (e?.message && !e.message.includes('fetch failed')) {
+      throw e;
     }
   }
 
-  // Agar oddiy HTML da topilmasa, YouTube Android Innertube API orqali yashirin taglavhalarni qidiramiz
+  // 2. Agar Innertube da topilmasa, YouTube watch sahifasini tahlil qilamiz
   if (!raw.length) {
     try {
-      const innertubeRes = await fetch('https://www.youtube.com/youtubei/v1/player', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
-        },
-        body: JSON.stringify({
-          context: {
-            client: {
-              clientName: 'ANDROID',
-              clientVersion: '19.09.37',
-              hl: 'en',
-            },
-          },
-          videoId,
-        }),
-        signal: AbortSignal.timeout(15_000),
+      const res = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en`, {
+        headers: { 'User-Agent': DESKTOP_UA, 'Accept-Language': 'en-US,en;q=0.9' },
+        signal: AbortSignal.timeout(20_000),
       });
-
-      if (innertubeRes.ok) {
-        const data = await innertubeRes.json();
-        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-        if (Array.isArray(tracks) && tracks.length > 0) {
-          raw = tracks;
+      if (res.ok) {
+        const html = await res.text();
+        const match = html.match(/"captionTracks":(\[.*?\])/);
+        if (match) {
+          try {
+            raw = JSON.parse(match[1]);
+          } catch {
+            raw = [];
+          }
+        }
+        if (!audioLang) {
+          audioLang = html.match(/"defaultAudioLanguage":"([\w-]+)"/)?.[1];
+        }
+        if (!raw.length && /"playabilityStatus":\{"status":"(LOGIN_REQUIRED|UNPLAYABLE|ERROR)"/.test(html)) {
+          throw new Error('Video ochiq emas yoki yoshga cheklangan');
         }
       }
-    } catch {
-      /* Innertube fallback xatosi */
+    } catch (e: any) {
+      if (e?.message && e.message.includes('Video ochiq emas')) {
+        throw e;
+      }
     }
   }
 
   if (!raw.length) {
-    if (/"playabilityStatus":\{"status":"(LOGIN_REQUIRED|UNPLAYABLE|ERROR)"/.test(html)) {
-      throw new Error('Video ochiq emas yoki yoshga cheklangan');
-    }
     return { tracks: [] };
   }
-
-  const audioLang = html.match(/"defaultAudioLanguage":"([\w-]+)"/)?.[1];
 
   const tracks: CaptionTrack[] = raw
     .filter(t => t.baseUrl && t.languageCode)
@@ -160,35 +182,29 @@ export function pickTrack(list: TrackList, requested: string): CaptionTrack | nu
   return asr ?? tracks[0];
 }
 
-interface Json3 {
-  events?: Array<{
-    tStartMs?: number;
-    dDurationMs?: number;
-    segs?: Array<{ utf8?: string }>;
-  }>;
-}
-
-/** Tanlangan trekni o'qib, xom segmentlarga aylantiradi. */
+/** Tanlangan trekni o'qib, xom segmentlarga aylantiradi (XML va JSON formatlarini to'liq qo'llab-quvvatlaydi). */
 export async function fetchTrack(track: CaptionTrack): Promise<RawSegment[]> {
-  const url = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=json3`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': UA },
+  const res = await fetch(track.baseUrl, {
+    headers: { 'User-Agent': DESKTOP_UA },
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new Error(`Taglavha yuklanmadi (${res.status})`);
 
-  const data = (await res.json()) as Json3;
-  const segments: RawSegment[] = [];
+  const rawText = await res.text();
+  const segments = parseCaptionsText(rawText);
 
-  for (const ev of data.events ?? []) {
-    const text = (ev.segs ?? []).map(s => s.utf8 ?? '').join('');
-    if (!text.trim()) continue;
-    segments.push({
-      text,
-      offset: ev.tStartMs ?? 0,
-      // Oxirgi bo'lakda dDurationMs yo'q bo'lishi mumkin
-      duration: ev.dDurationMs ?? 2000,
+  if (!segments.length) {
+    // Agar dastlabki format bo'sh bo'lsa, `fmt=json3` bilan qayta urinib ko'ramiz
+    const json3Url = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=json3`;
+    const resJson = await fetch(json3Url, {
+      headers: { 'User-Agent': DESKTOP_UA },
+      signal: AbortSignal.timeout(20_000),
     });
+    if (resJson.ok) {
+      const textJson = await resJson.text();
+      return parseCaptionsText(textJson);
+    }
   }
+
   return segments;
 }

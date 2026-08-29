@@ -37,6 +37,7 @@ import { LANGS, DEFAULT_LANG, getProfile } from '@/lib/voices';
 import { DEFAULT_PROVIDER, type ProviderStatus } from '@/lib/providers';
 import { build as buildSubs, toBilingualTxt, MIME, type SubFormat } from '@/lib/subtitles';
 import { generateMasterAudio, exportVideoWithWatermark, triggerDownload, getExportFilename } from '@/lib/export';
+import { sanitizeYouTubeError } from '@/lib/youtube';
 import Landing from '@/components/Landing';
 import VideoPlayer, { type PlayerHandle } from '@/components/VideoPlayer';
 
@@ -309,7 +310,7 @@ export default function Home() {
 
       if (!res.ok || !data.success) {
         setStatus('error');
-        setErrorMsg(data.error ?? "Noma'lum xatolik");
+        setErrorMsg(sanitizeYouTubeError(data.error ?? "Noma'lum xatolik"));
         setProgress(0);
         return;
       }
@@ -335,7 +336,7 @@ export default function Home() {
       clearInterval(bump);
       setStatus('error');
       setProgress(0);
-      setErrorMsg("Server bilan bog'lanishda xatolik: " + String((e as Error)?.message ?? e));
+      setErrorMsg(sanitizeYouTubeError("Server bilan bog'lanishda xatolik: " + String((e as Error)?.message ?? e)));
     }
   };
 
