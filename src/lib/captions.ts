@@ -43,6 +43,9 @@ function trackLabel(t: RawTrack): string {
   return t.name?.simpleText ?? t.name?.runs?.[0]?.text ?? t.languageCode ?? "Noma'lum";
 }
 
+const CONSENT_COOKIE =
+  'CONSENT=YES+cb.20210328-17-p0.en+FX+100; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AwGgJlbiIAEhkA; PREF=hl=en&gl=US';
+
 /**
  * Qisqa muddatli kesh (faqat muvaffaqiyatli topilgan treklarni keshlaydi).
  */
@@ -68,19 +71,25 @@ async function fetchTrackList(videoId: string): Promise<TrackList> {
   let raw: RawTrack[] = [];
   let audioLang: string | undefined;
 
-  // 1. Android Innertube orqali taglavhalarni olish
+  // 1. Android Innertube orqali taglavhalarni olish (to'liq mijoz sarlavhalari bilan)
   try {
     const innertubeRes = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': INNERTUBE_USER_AGENT,
+        'X-YouTube-Client-Name': '3',
+        'X-YouTube-Client-Version': INNERTUBE_CLIENT_VERSION,
+        'Origin': 'https://www.youtube.com',
       },
       body: JSON.stringify({
         context: {
           client: {
             clientName: 'ANDROID',
             clientVersion: INNERTUBE_CLIENT_VERSION,
+            androidSdkVersion: 34,
+            hl: 'en',
+            gl: 'US',
           },
         },
         videoId,
@@ -98,11 +107,15 @@ async function fetchTrackList(videoId: string): Promise<TrackList> {
     }
   } catch {}
 
-  // 2. Agar Innertube da topilmasa, YouTube watch sahifasini tahlil qilamiz
+  // 2. Agar Innertube da topilmasa, YouTube watch sahifasini tahlil qilamiz (Cookie bilan)
   if (!raw.length) {
     try {
       const res = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en`, {
-        headers: { 'User-Agent': DESKTOP_UA, 'Accept-Language': 'en-US,en;q=0.9' },
+        headers: {
+          'User-Agent': DESKTOP_UA,
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cookie': CONSENT_COOKIE,
+        },
         signal: AbortSignal.timeout(20_000),
       });
       if (res.ok) {
@@ -168,7 +181,7 @@ export async function fetchTrack(track: CaptionTrack): Promise<RawSegment[]> {
   // 1. Dastlabki baseUrl orqali o'qish
   try {
     const res = await fetch(track.baseUrl, {
-      headers: { 'User-Agent': DESKTOP_UA },
+      headers: { 'User-Agent': DESKTOP_UA, 'Cookie': CONSENT_COOKIE },
       signal: AbortSignal.timeout(20_000),
     });
     if (res.ok) {
@@ -182,7 +195,7 @@ export async function fetchTrack(track: CaptionTrack): Promise<RawSegment[]> {
   try {
     const srv3Url = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=srv3`;
     const resSrv3 = await fetch(srv3Url, {
-      headers: { 'User-Agent': DESKTOP_UA },
+      headers: { 'User-Agent': DESKTOP_UA, 'Cookie': CONSENT_COOKIE },
       signal: AbortSignal.timeout(20_000),
     });
     if (resSrv3.ok) {
@@ -196,7 +209,7 @@ export async function fetchTrack(track: CaptionTrack): Promise<RawSegment[]> {
   try {
     const json3Url = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=json3`;
     const resJson = await fetch(json3Url, {
-      headers: { 'User-Agent': DESKTOP_UA },
+      headers: { 'User-Agent': DESKTOP_UA, 'Cookie': CONSENT_COOKIE },
       signal: AbortSignal.timeout(20_000),
     });
     if (resJson.ok) {
