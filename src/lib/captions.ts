@@ -44,9 +44,7 @@ function trackLabel(t: RawTrack): string {
 }
 
 /**
- * Watch sahifasini takror-takror olish YouTube tomonidan cheklanadi, natijada
- * bir seansda /api/tracks va /api/dub turli natija qaytarishi mumkin edi.
- * Qisqa muddatli kesh buni bartaraf qiladi.
+ * Qisqa muddatli kesh (faqat muvaffaqiyatli topilgan treklarni keshlaydi).
  */
 const CACHE = new Map<string, { at: number; value: TrackList }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -54,11 +52,15 @@ const CACHE_LIMIT = 60;
 
 export async function listTracks(videoId: string): Promise<TrackList> {
   const cached = CACHE.get(videoId);
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
+  if (cached && cached.value.tracks.length > 0 && Date.now() - cached.at < CACHE_TTL_MS) {
+    return cached.value;
+  }
 
   const value = await fetchTrackList(videoId);
-  CACHE.set(videoId, { at: Date.now(), value });
-  while (CACHE.size > CACHE_LIMIT) CACHE.delete(CACHE.keys().next().value!);
+  if (value.tracks.length > 0) {
+    CACHE.set(videoId, { at: Date.now(), value });
+    while (CACHE.size > CACHE_LIMIT) CACHE.delete(CACHE.keys().next().value!);
+  }
   return value;
 }
 
@@ -79,7 +81,6 @@ async function fetchTrackList(videoId: string): Promise<TrackList> {
           client: {
             clientName: 'ANDROID',
             clientVersion: INNERTUBE_CLIENT_VERSION,
-            hl: 'en',
           },
         },
         videoId,
