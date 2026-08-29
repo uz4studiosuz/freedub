@@ -174,7 +174,7 @@ export async function fetchYouTubeAudioBuffer(videoId: string): Promise<{
 export function sanitizeYouTubeError(msg: string): string {
   if (!msg) return "Noma'lum xatolik yuz berdi.";
   if (/bot|sign in|confirm you're not a bot|captcha/i.test(msg)) {
-    return "Ushbu videoda YouTube taglavhalari topilmadi. Bepul tarjima xizmatlari mavjud subtitrlar asosida ishlaydi. Subtitrsiz videolarni tarjima qilish uchun Sozlamalardan Gemini yoki Groq AI kalitini kiriting.";
+    return "YouTube tizimi xavfsizlik (Bot) cheklovini o'rnatdi. Videoni hozircha yuklab bo'lmayapti. Iltimos, birozdan so'ng qayta urinib ko'ring.";
   }
   if (/unavailable|unplayable|login_required|private/i.test(msg)) {
     return "Ushbu YouTube videosi mavjud emas, yosh cheklovi mavjud yoki maxfiy (yopiq).";

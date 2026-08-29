@@ -29,7 +29,7 @@ export async function transcribeAudioStream(
   // Agar AI kaliti bo'lmasa, audio yuklab resurs sarflamaymiz va xatoni to'g'ri qaytaramiz
   if (!hasGemini && !hasGroq) {
     throw new Error(
-      "Ushbu videoda YouTube taglavhalari (subtitrlari) topilmadi. Bepul tarjima xizmatlari videodagi mavjud subtitrlar asosida ishlaydi. Subtitrsiz videolarni ovozidan eshitib tarjima qilish uchun Sozlamalardan Gemini yoki Groq API kalitini kiritishingiz mumkin."
+      "Ovozli tarjima (Audio ASR) funksiyasidan foydalanish uchun Sozlamalardan Gemini yoki Groq API kalitini kiritishingiz kerak."
     );
   }
 

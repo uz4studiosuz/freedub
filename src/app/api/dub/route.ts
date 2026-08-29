@@ -100,8 +100,24 @@ export async function POST(request: Request) {
       loaded = await loadCaptions(videoId, String(sourceLang));
     } catch (e: any) {
       // Agar foydalanuvchi bepul provayderda bo'lsa va AI kalit kiritmagan bo'lsa:
-      // Hech qanday audio yuklash/bot xatosi chiqarmaymiz, tushunarli o'zbekcha yo'riqnoma beramiz!
       if (!hasAiKey && providerMeta.kind === 'free') {
+        const errMessage = e?.message || '';
+        const isBotError = /bot|sign in|confirm you're not a bot|captcha/i.test(errMessage);
+        const isUnavailable = /yoshga cheklangan|mavjud emas|unavailable|unplayable|login_required|private/i.test(errMessage);
+
+        if (isBotError) {
+          return NextResponse.json(
+            { error: "YouTube tizimi xavfsizlik (Bot) cheklovini o'rnatdi. Videoning taglavhasi yoki audiosini hozircha yuklab bo'lmayapti. Iltimos, birozdan so'ng qayta urinib ko'ring yoki API kalit kiriting." },
+            { status: 403 }
+          );
+        }
+        if (isUnavailable) {
+          return NextResponse.json(
+            { error: "Ushbu YouTube videosi mavjud emas, yosh cheklovi mavjud yoki maxfiy (yopiq)." },
+            { status: 403 }
+          );
+        }
+
         return NextResponse.json(
           {
             error:
